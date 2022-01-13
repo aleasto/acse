@@ -90,6 +90,7 @@ t_reg_allocator *RA;       /* Register allocator. It implements the "Linear
 
 t_io_infos *file_infos;    /* input and output files used by the compiler */
 
+t_axe_expression select_exp;
 
 extern int yylex(void);
 extern void yyerror(const char*);
@@ -125,6 +126,8 @@ extern void yyerror(const char*);
 %token RETURN
 %token READ
 %token WRITE
+%token SELECT
+%token COLON
 
 %token <label> DO
 %token <while_stmt> WHILE
@@ -133,6 +136,7 @@ extern void yyerror(const char*);
 %token <intval> TYPE
 %token <svalue> IDENTIFIER
 %token <intval> NUMBER
+%token <label> CASE
 
 %type <expr> exp
 %type <decl> declaration
@@ -254,6 +258,7 @@ control_statement : if_statement         { /* does nothing */ }
             | while_statement            { /* does nothing */ }
             | do_while_statement SEMI    { /* does nothing */ }
             | return_statement SEMI      { /* does nothing */ }
+            | select_statement           { /* does nothing */ }
 ;
 
 read_write_statement : read_statement  { /* does nothing */ }
@@ -417,6 +422,43 @@ return_statement : RETURN
             {
                /* insert an HALT instruction */
                gen_halt_instruction(program);
+            }
+;
+
+select_statement : SELECT LPAR exp RPAR
+            {
+               // Store exp for later parsing
+               if ($3.expression_type == IMMEDIATE) {
+                  select_exp = $3; // pass over the exp for handle_binary_comparison
+               }
+               else {
+                  // Copy the value to another register, to prevent edits
+                  int out_reg = getNewRegister(program);
+                  gen_add_instruction(program, out_reg, REG_0, $3.value, CG_DIRECT_ALL);
+                  select_exp = create_expression(out_reg, REGISTER); // make an exp for handle_binary_comparison
+               }
+            }
+            LBRACE case_statements RBRACE
+;
+
+case_statements : case_statements case_statement |
+                  case_statement
+;
+
+case_statement : CASE LPAR exp RPAR COLON
+            {
+               $1 = newLabel(program);
+               t_axe_expression result = handle_binary_comparison(program, select_exp, $3, _EQ_);
+               if (result.expression_type == IMMEDIATE)
+                  gen_load_immediate(program, result.value);
+               else
+                  gen_andb_instruction(program, result.value, result.value, result.value, CG_DIRECT_ALL);
+
+               gen_beq_instruction(program, $1, 0);
+            }
+            statements
+            {
+               assignLabel(program, $1);
             }
 ;
 

@@ -65,6 +65,7 @@ ID       [a-zA-Z_][a-zA-Z0-9_]*
 "("               { return LPAR; }
 ")"               { return RPAR; }
 ";"               { return SEMI; }
+":"               { return COLON; }
 "+"               { return PLUS; }
 "-"               { return MINUS; }
 "*"               { return MUL_OP; }
@@ -93,6 +94,8 @@ ID       [a-zA-Z_][a-zA-Z0-9_]*
 "return"          { return RETURN; }
 "read"            { return READ; }
 "write"           { return WRITE; }
+"select"          { return SELECT; }
+"case"            { return CASE; }
 
 {ID}              { yylval.svalue=strdup(yytext); return IDENTIFIER; }
 {DIGIT}+          { yylval.intval = atoi( yytext );
