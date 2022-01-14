@@ -125,6 +125,7 @@ extern void yyerror(const char*);
 %token RETURN
 %token READ
 %token WRITE
+%token INTERVAL
 
 %token <label> DO
 %token <while_stmt> WHILE
@@ -307,6 +308,71 @@ assign_statement : IDENTIFIER LSQUARE exp RSQUARE ASSIGN exp
 
                /* free the memory associated with the IDENTIFIER */
                free($1);
+            }
+            | IDENTIFIER ASSIGN LSQUARE exp INTERVAL exp RSQUARE
+            {
+               t_axe_variable* var = getVariable(program, $1);
+               int location = get_symbol_location(program, $1, 0);
+               int start_reg = getNewRegister(program);
+               int end_reg = getNewRegister(program);
+               t_axe_expression start_exp, end_exp;
+
+               if ($4.expression_type == IMMEDIATE) {
+                  gen_move_immediate(program, start_reg, $4.value);
+               } else {
+                  gen_add_instruction(program, start_reg, $4.value, REG_0, CG_DIRECT_ALL);
+               }
+
+               if ($6.expression_type == IMMEDIATE) {
+                  gen_move_immediate(program, end_reg, $6.value);
+               } else {
+                  gen_add_instruction(program, end_reg, $6.value, REG_0, CG_DIRECT_ALL);
+               }
+
+               start_exp = create_expression(start_reg, REGISTER);
+               end_exp = create_expression(end_reg, REGISTER);
+
+               if (!var->isArray) {
+                  t_axe_label* swap_done_label = newLabel(program);
+                  t_axe_label* empty_interval = newLabel(program);
+
+                  // Skip if empty interval
+                  handle_binary_comparison(program, start_exp, end_exp, _EQ_);
+                  gen_bne_instruction(program, empty_interval, 0);
+
+                  // Find the smallest of the range and assign it to start_reg
+                  handle_binary_comparison(program, start_exp, end_exp, _GT_);
+                  gen_beq_instruction(program, swap_done_label, 0);
+                  gen_andb_instruction(program, start_reg, end_reg, end_reg, CG_DIRECT_ALL);
+                  assignLabel(program, swap_done_label);
+
+                  // Assign to scalar
+                  gen_add_instruction(program, location, REG_0, start_reg, CG_DIRECT_ALL);
+
+                  assignLabel(program, empty_interval);
+               } else /* isArray */ {
+                  int counter_reg = gen_load_immediate(program, 0);
+                  t_axe_expression counter_exp = create_expression(counter_reg, REGISTER);
+
+                  t_while_statement interval_loop = create_while_statement();
+                  interval_loop.label_condition = assignNewLabel(program);
+                  interval_loop.label_end = newLabel(program);
+
+                  // Emit while control
+                  t_axe_expression start_eq_end = handle_binary_comparison(program, start_exp, end_exp, _EQ_);
+                  t_axe_expression out_of_bounds = handle_binary_comparison(program, counter_exp, create_expression(var->arraySize, IMMEDIATE), _GTEQ_);
+                  handle_bin_numeric_op(program, start_eq_end, out_of_bounds, ORL);
+                  gen_bne_instruction(program, interval_loop.label_end, 0);
+
+                  // Emit code loop
+                  storeArrayElement(program, $1, counter_exp, start_exp);
+                  gen_addi_instruction(program, counter_reg, counter_reg, 1);
+                  gen_addi_instruction(program, start_reg, start_reg, 1);
+
+                  // Emit while footer
+                  gen_bt_instruction(program, interval_loop.label_condition, 0);
+                  assignLabel(program, interval_loop.label_end);
+               }
             }
 ;
             
