@@ -125,6 +125,8 @@ extern void yyerror(const char*);
 %token RETURN
 %token READ
 %token WRITE
+%token DOT
+%token MULTISPLICE
 
 %token <label> DO
 %token <while_stmt> WHILE
@@ -138,11 +140,14 @@ extern void yyerror(const char*);
 %type <decl> declaration
 %type <list> declaration_list
 %type <label> if_stmt
+%type <intval> range
+%type <intval> range_list
 
 /*=========================================================================
                           OPERATOR PRECEDENCES
  =========================================================================*/
 
+%left DOT
 %left COMMA
 %left ASSIGN
 %left OROR
@@ -544,7 +549,30 @@ exp: NUMBER      { $$ = create_expression ($1, IMMEDIATE); }
                            (program, exp_r0, $2, SUB);
                   }
                }
+   | exp DOT MULTISPLICE LT range_list GT MULTISPLICE {
+      $$ = handle_bin_numeric_op(program, $1, create_expression($5, IMMEDIATE), ANDB);
+   }
 ;
+
+range_list : range_list COMMA range
+            {
+               if ($1 & $3) yyerror("Multisplice ranges must be disjoint\n");
+
+               $$ = $1 | $3; 
+            }
+           | range                  { $$ = $1; }
+;
+
+range : NUMBER MINUS NUMBER 
+            {
+               if ($1 > $3) yyerror("Multisplice range must be an ordered pair");
+
+               uint32_t bitmask = 0;
+               for (int i = $1; i <= $3; i++) {
+                  bitmask |= 1 << i;
+               }
+               $$ = bitmask;
+            }
 
 %%
 /*=========================================================================

@@ -1,0 +1,9 @@
+int x = 524280;
+
+write(x.m<0-2,19-25>m);
+
+write(x.m<3-10>m);
+
+write(x.m<13-18>m);
+
+write(x.m<3-10,13-18>m);
