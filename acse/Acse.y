@@ -117,7 +117,7 @@ extern void yyerror(const char*);
 
 %token EOF_TOK /* end of file */
 %token LBRACE RBRACE LPAR RPAR LSQUARE RSQUARE
-%token SEMI PLUS MINUS MUL_OP DIV_OP
+%token SEMI PLUS MINUS MUL_OP DIV_OP TILDE
 %token AND_OP OR_OP NOT_OP
 %token ASSIGN LT GT SHL_OP SHR_OP EQ NOTEQ LTEQ GTEQ
 %token ANDAND OROR
@@ -307,6 +307,64 @@ assign_statement : IDENTIFIER LSQUARE exp RSQUARE ASSIGN exp
 
                /* free the memory associated with the IDENTIFIER */
                free($1);
+            }
+            | IDENTIFIER ASSIGN IDENTIFIER TILDE IDENTIFIER
+            {
+               t_axe_variable* res = getVariable(program, $1);
+               t_axe_variable* a   = getVariable(program, $3);
+               t_axe_variable* b   = getVariable(program, $5);
+               if (!res->isArray || !a->isArray || !b->isArray) {
+                  yyerror("Concatenation operator requires three arrays");
+               }
+
+               t_axe_expression size_res = create_expression(res->arraySize, IMMEDIATE);
+               t_axe_expression size_a = create_expression(a->arraySize, IMMEDIATE);
+               t_axe_expression size_b = create_expression(b->arraySize, IMMEDIATE);
+
+               t_axe_expression counter_i = create_expression(gen_load_immediate(program, 0), REGISTER);
+               t_axe_expression counter_j = create_expression(gen_load_immediate(program, 0), REGISTER);
+               int tmp_reg = getNewRegister(program);
+
+               t_axe_label* first_loop = assignNewLabel(program);
+               t_axe_label* second_loop = newLabel(program);
+               t_axe_label* end_label = newLabel(program);
+
+               // while (i < res->arraySize && i < a->arraySize)
+               t_axe_expression check_res_array_size = handle_binary_comparison(program, counter_i, size_res, _LT_);
+               t_axe_expression check_a_array_size = handle_binary_comparison(program, counter_i, size_a, _LT_);
+               gen_andl_instruction(program, tmp_reg, check_res_array_size.value, check_a_array_size.value, CG_DIRECT_ALL);
+               gen_beq_instruction(program, second_loop, 0);
+
+               // res[i] = a[i]
+               t_axe_expression a_at_i = create_expression(loadArrayElement(program, $3, counter_i), REGISTER);
+               storeArrayElement(program, $1, counter_i, a_at_i);
+
+               // i++ and jump back
+               gen_addi_instruction(program, counter_i.value, counter_i.value, 1);
+               gen_bt_instruction(program, first_loop, 0);
+
+               assignLabel(program, second_loop);
+
+               // while (i < res->arraySize && j < b->arraySize)
+               check_res_array_size = handle_binary_comparison(program, counter_i, size_res, _LT_);
+               t_axe_expression check_b_array_size = handle_binary_comparison(program, counter_j, size_b, _LT_);
+               gen_andl_instruction(program, tmp_reg, check_res_array_size.value, check_b_array_size.value, CG_DIRECT_ALL);
+               gen_beq_instruction(program, end_label, 0);
+
+               // res[i] = b[j]
+               t_axe_expression b_at_j = create_expression(loadArrayElement(program, $5, counter_j), REGISTER);
+               storeArrayElement(program, $1, counter_i, b_at_j);
+
+               // i++; j++; jump back
+               gen_addi_instruction(program, counter_i.value, counter_i.value, 1);
+               gen_addi_instruction(program, counter_j.value, counter_j.value, 1);
+               gen_bt_instruction(program, second_loop, 0);
+
+               assignLabel(program, end_label);
+
+               free($1);
+               free($3);
+               free($5);
             }
 ;
             
