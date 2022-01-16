@@ -110,6 +110,15 @@ typedef struct t_while_statement
                                     * that follows the while construct */
 } t_while_statement;
 
+typedef struct {
+   int result;
+   int counter;
+   t_axe_label* loop_condition_label;
+   t_axe_label* end_label;
+   t_axe_label* load_element_label;
+   t_axe_label* eval_expression_label;
+} t_invariant_statement;
+
 /* create a label */
 extern t_axe_label *alloc_label(int value);
 

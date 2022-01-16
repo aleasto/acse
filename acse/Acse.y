@@ -109,6 +109,7 @@ extern void yyerror(const char*);
    t_list *list;
    t_axe_label *label;
    t_while_statement while_stmt;
+   t_invariant_statement inv_stmt;
 } 
 /*=========================================================================
                                TOKENS 
@@ -128,6 +129,7 @@ extern void yyerror(const char*);
 
 %token <label> DO
 %token <while_stmt> WHILE
+%token <inv_stmt> INVARIANT
 %token <label> IF
 %token <label> ELSE
 %token <intval> TYPE
@@ -544,6 +546,60 @@ exp: NUMBER      { $$ = create_expression ($1, IMMEDIATE); }
                            (program, exp_r0, $2, SUB);
                   }
                }
+   | INVARIANT LPAR IDENTIFIER COMMA
+               {
+                  t_axe_variable* arr = getVariable(program, $3);
+                  if (!arr->isArray) {
+                     yyerror("not an array");
+                  }
+
+                  $1.result = gen_load_immediate(program, 1);
+                  $1.counter = gen_load_immediate(program, arr->arraySize-1);
+                  $1.loop_condition_label = newLabel(program);
+                  $1.end_label = newLabel(program);
+                  $1.load_element_label = newLabel(program);
+                  $1.eval_expression_label = newLabel(program);
+
+                  // loop condition
+                  assignLabel(program, $1.loop_condition_label);
+                  gen_andb_instruction(program, $1.counter, $1.counter, $1.counter, CG_DIRECT_ALL);
+                  gen_bmi_instruction(program, $1.end_label, 0);
+
+                  // loop body begin
+                  gen_bt_instruction(program, $1.load_element_label, 0);
+                  assignLabel(program, $1.eval_expression_label);
+               }
+               exp COMMA IDENTIFIER RPAR
+               {
+                  // result &= e;
+                  // if (!result) break;
+                  if ($6.expression_type == REGISTER) {
+                     gen_andl_instruction(program, $1.result, $1.result, $6.value, CG_DIRECT_ALL);
+                  } else {
+                     gen_andli_instruction(program, $1.result, $1.result, $6.value);
+                  }
+                  gen_beq_instruction(program, $1.end_label, 0);
+
+                  //counter--
+                  gen_subi_instruction(program, $1.counter, $1.counter, 1);
+                  // loop back
+                  gen_bt_instruction(program, $1.loop_condition_label, 0);
+
+                  // assign procedure: var = arr[counter]
+                  assignLabel(program, $1.load_element_label);
+                  int value = loadArrayElement(program, $3, create_expression($1.counter, REGISTER));
+                  int var = get_symbol_location(program, $8, 0);
+                  gen_add_instruction(program, var, value, REG_0, CG_DIRECT_ALL);
+                  gen_bt_instruction(program, $1.eval_expression_label, 0);
+
+                  assignLabel(program, $1.end_label);
+
+
+                  free($3);
+                  free($8);
+                  $$ = create_expression($1.result, REGISTER);
+               }
+
 ;
 
 %%
