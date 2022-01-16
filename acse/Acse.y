@@ -109,6 +109,7 @@ extern void yyerror(const char*);
    t_list *list;
    t_axe_label *label;
    t_while_statement while_stmt;
+   t_iterate_statement iterate_stmt;
 } 
 /*=========================================================================
                                TOKENS 
@@ -125,6 +126,8 @@ extern void yyerror(const char*);
 %token RETURN
 %token READ
 %token WRITE
+%token TIMES
+%token UNLESS
 
 %token <label> DO
 %token <while_stmt> WHILE
@@ -133,6 +136,7 @@ extern void yyerror(const char*);
 %token <intval> TYPE
 %token <svalue> IDENTIFIER
 %token <intval> NUMBER
+%token <iterate_stmt> ITERATE
 
 %type <expr> exp
 %type <decl> declaration
@@ -253,8 +257,55 @@ statement   : assign_statement SEMI      { /* does nothing */ }
 control_statement : if_statement         { /* does nothing */ }
             | while_statement            { /* does nothing */ }
             | do_while_statement SEMI    { /* does nothing */ }
+            | iterate_statement SEMI     { /* does nothing */ }
             | return_statement SEMI      { /* does nothing */ }
 ;
+
+iterate_statement : ITERATE
+            {
+               $1.condition_label = newLabel(program);
+               $1.times_label = newLabel(program);
+               $1.counter = create_expression(gen_load_immediate(program, 0), REGISTER);
+
+               // jump forward to compute the repeat count and initial condition
+               gen_bt_instruction(program, $1.times_label, 0);
+
+               $1.code_block_label = assignNewLabel(program);
+            }
+            code_block
+            {
+               // i++ and jump to condition check
+               gen_addi_instruction(program, $1.counter.value, $1.counter.value, 1);
+               gen_bt_instruction(program, $1.condition_label, 0);
+
+               assignLabel(program, $1.times_label);
+            }
+            TIMES LPAR exp RPAR 
+            {
+               // compute expression result to new register (if not immediate)
+               $1.times = handle_bin_numeric_op(program, $7, create_expression(0, IMMEDIATE), ADD);
+
+               assignLabel(program, $1.condition_label);
+            }
+            UNLESS LPAR exp RPAR
+            {
+               t_axe_expression counter_lt_times = handle_binary_comparison(program, $1.counter, $1.times, _LT_);
+               t_axe_expression not_unless;
+               if ($12.expression_type == IMMEDIATE) {
+                  not_unless = create_expression(! $12.value, IMMEDIATE);
+               } else {
+                  int reg = getNewRegister(program);
+                  gen_notl_instruction(program, reg, $12.value);
+                  not_unless = create_expression(reg, REGISTER);
+               }
+
+               t_axe_expression condition = handle_bin_numeric_op(program, counter_lt_times, not_unless, ANDL);
+               // condition is guaranteed to be register type. update status register
+               gen_andb_instruction(program, condition.value, condition.value, condition.value, CG_DIRECT_ALL);
+
+               // jump back
+               gen_bne_instruction(program, $1.code_block_label, 0);
+            }
 
 read_write_statement : read_statement  { /* does nothing */ }
                      | write_statement { /* does nothing */ }
